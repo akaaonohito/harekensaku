@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>晴れる屋 MTG 検索アプリ</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- ヘッダー -->
+        <header class="header">
+            <h1>晴れる屋 MTG 検索</h1>
+            <p class="subtitle">検索ワードを入力して、カード情報を取得</p>
+        </header>
+
+        <!-- メインコンテンツ -->
+        <main class="main">
+            <!-- 検索セクション -->
+            <section class="search-section">
+                <div class="search-row">
+                    <!-- 検索入力フィールド -->
+                    <input 
+                        type="text" 
+                        id="searchInput" 
+                        class="search-input" 
+                        placeholder="検索ワードを入力（例：神聖なる泉）"
+                        onkeypress="handleSearchKeyPress(event)"
+                    >
+                    <!-- 検索ボタン -->
+                    <button id="searchBtn" class="search-btn" onclick="handleSearch()">
+                        検索
+                    </button>
+                </div>
+
+                <!-- 読み込み中表示 -->
+                <div id="loadingMessage" class="message loading hidden">
+                    読み込み中...
+                </div>
+
+                <!-- エラーメッセージ表示 -->
+                <div id="errorMessage" class="message error hidden"></div>
+            </section>
+
+            <!-- 選択セクション -->
+            <section class="selection-section">
+                <div class="selection-row">
+                    <!-- 検索結果プルダウン -->
+                    <select id="cardSelect" class="card-select">
+                        <option value="">-- カードを選択してください --</option>
+                    </select>
+                    <!-- 決定ボタン -->
+                    <button id="DecisionBtn" class="decision-btn" onclick="handleDecision()">
+                        決定
+                    </button>
+                </div>
+            </section>
+
+            <!-- 結果表示セクション -->
+            <section class="result-section">
+                <!-- カード名表示 -->
+                <div class="result-item">
+                    <label class="result-label">カード名</label>
+                    <div id="resultCardName" class="result-value">
+                        選択されていません
+                    </div>
+                </div>
+
+                <!-- 価格表示 -->
+                <div class="result-item">
+                    <label class="result-label">価格</label>
+                    <div id="resultPrice" class="result-value">
+                        価格情報なし
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- フッター -->
+        <footer class="footer">
+            <p>晴れる屋 MTG 検索アプリ v1.0</p>
+        </footer>
+    </div>
+
+    <!-- JavaScript ファイル読み込み -->
+    <script src="script.js"></script>
+</body>
+</html>
