@@ -1,7 +1,7 @@
 // Express と 必要なライブラリをインポート
 const express = require('express');
-const axios = require('axios');
 const cheerio = require('cheerio');
+const puppeteer = require('puppeteer');
 const path = require('path');
 
 // Express アプリケーション初期化
@@ -26,108 +26,115 @@ async function searchHareruyaMTG(searchWord) {
 
     console.log(`検索中: ${searchUrl}`);
 
-    // Webページの内容を取得
-    const response = await axios.get(searchUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-      },
-      timeout: 10000
+    // Webページの内容を Puppeteer で取得
+    const browser = await puppeteer.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+    const page = await browser.newPage();
+    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+    await page.setExtraHTTPHeaders({
+      'Accept-Language': 'ja-JP,ja;q=0.9'
+    });
+    await page.goto(searchUrl, {
+      waitUntil: ['domcontentloaded', 'networkidle2'],
+      timeout: 20000
     });
 
+    // 必要ならJSで生成された要素を待機
+    try {
+      await page.waitForSelector('a.itemName', { timeout: 5000 });
+    } catch (err) {
+      // a.itemNameがない場合でも続行
+    }
+
+    const pageHtml = await page.content();
+    await browser.close();
+
+    // デバッグ：取得したHTMLの最初の部分を出力
+    console.log('===== 取得HTML（最初2000文字）=====');
+    console.log(pageHtml.substring(0, 2000));
+    console.log('===== ここまで =====');
+
     // レスポンスボディをHTMLとして解析
-    const $ = cheerio.load(response.data);
+    const $ = cheerio.load(pageHtml);
 
     // 候補カード一覧を格納する配列
     const cards = [];
 
-    // 晴れる屋のページ構造に合わせて、カード情報を抽出
-    // NOTE: 晴れる屋のサイト構造変更に対応しやすくするため、
-    // スクレイピングロジックは分離している
+    // 晴れる屋の実際の HTML 構造に合わせてスクレイピング
+    // カード名：<a class="itemName">
+    // 価格：<p class="itemDetail__price">
     
-    // 商品行を検索
-    // 一般的な商品リスト構造: <div class="product-item"> や <li class="product"> 等
-    // サイト構造の変更に強くするため、複数のセレクタを試行
-    const productSelectors = [
-      'div.product-item',
-      'li.product-item',
-      'div[data-product-id]',
-      'a.product-name'
-    ];
+    // すべてのカード名リンクを取得
+    const cardLinks = $('a.itemName');
+    console.log(`a.itemName 見つかった件数: ${cardLinks.length}件`);
 
-    let products = $();
-    for (const selector of productSelectors) {
-      products = $(selector);
-      if (products.length > 0) {
-        console.log(`マッチしたセレクタ: ${selector} (${products.length}件)`);
-        break;
+    // デバッグ：存在する a タグを調査
+    if (cardLinks.length === 0) {
+      console.log('【デバッグ】a.itemName が見つかりません。別のセレクタを確認します...');
+      const allLinks = $('a');
+      console.log(`全 a タグ数: ${allLinks.length}件`);
+      const itemNameDivs = $('[class*="itemName"]');
+      console.log(`itemName を含む要素: ${itemNameDivs.length}件`);
+      const items = $('[class*="item"]');
+      console.log(`item を含む要素: ${items.length}件（最初5個）`);
+      for (let i = 0; i < Math.min(5, items.length); i++) {
+        console.log(`  - ${$(items[i]).attr('class')}`);
       }
     }
 
-    // 最初の候補から取得した情報が０件の場合は、
-    // 別の方法で商品を探す
-    if (products.length === 0) {
-      // テーブル行から検索
-      products = $('table tr').slice(1);
-      console.log(`テーブルから検索: ${products.length}件`);
-    }
-
-    // 各商品から情報を抽出
-    products.each((index, element) => {
+    // 各カード情報を抽出
+    cardLinks.each((index, element) => {
       try {
         // 限定: 取得件数が多すぎないよう、最大20件まで
         if (cards.length >= 20) {
-          return false; // ループ終了
+          return false;
         }
 
-        const $product = $(element);
+        const $link = $(element);
 
         // カード名を取得
-        // 複数のセレクタパターンを試す
-        let cardName = '';
-        const nameSelectors = [
-          'a.product-name',
-          'span.product-name',
-          'a[href*="/products/"]',
-          'div h2'
-        ];
+        const cardName = $link.text().trim();
 
-        for (const selector of nameSelectors) {
-          const name = $product.find(selector).first().text().trim();
-          if (name && name.length > 0) {
-            cardName = name;
-            break;
-          }
-        }
-
-        // URL を取得（商品へのリンク）
-        let productUrl = '';
-        const linkElement = $product.find('a').first();
-        if (linkElement.length > 0) {
-          let url = linkElement.attr('href');
-          if (url) {
-            // 相対URLを絶対URLに変換
-            if (!url.startsWith('http')) {
-              url = 'https://www.hareruyamtg.com' + (url.startsWith('/') ? '' : '/') + url;
-            }
-            productUrl = url;
-          }
+        // URL を取得
+        let productUrl = ($link.attr('href') || '').replace(/\s+/g, '').trim();
+        if (productUrl && !productUrl.startsWith('http')) {
+          productUrl = 'https://www.hareruyamtg.com' + (productUrl.startsWith('/') ? '' : '/') + productUrl;
         }
 
         // 価格を取得
-        // 複数のパターンを試す
+        // 方法1: 親要素から <p class="itemDetail__price"> を探す
         let price = '';
-        const pricePatterns = [
-          /¥[\s]?([0-9,]+)/,
-          /￥[\s]?([0-9,]+)/,
-          /([0-9,]+)\s*円/
-        ];
+        const $parent = $link.closest('div');
+        if ($parent.length > 0) {
+          const priceElement = $parent.find('p.itemDetail__price');
+          if (priceElement.length > 0) {
+            const priceText = priceElement.text().trim();
+            // "¥ 1,500" から "1,500" を抽出
+            const match = priceText.match(/¥[\s]?([0-9,]+)/);
+            if (match) {
+              price = match[1];
+            } else {
+              price = priceText;
+            }
+          }
+        }
 
-        const priceText = $product.text();
-        for (const pattern of pricePatterns) {
-          const match = priceText.match(pattern);
-          if (match) {
-            price = match[1];
-            break;
+        // 方法2: 価格が見つからなければ、テキストから正規表現で抽出
+        if (!price) {
+          const textContent = $link.text();
+          const pricePatterns = [
+            /¥[\s]?([0-9,]+)/,
+            /￥[\s]?([0-9,]+)/,
+            /([0-9,]+)\s*円/
+          ];
+          for (const pattern of pricePatterns) {
+            const match = textContent.match(pattern);
+            if (match) {
+              price = match[1];
+              break;
+            }
           }
         }
 
@@ -136,10 +143,9 @@ async function searchHareruyaMTG(searchWord) {
           cards.push({
             name: cardName,
             price: price || '価格情報取得中',
-            url: productUrl,
-            // 元のHTML要素テキスト（デバッグ用）
-            rawText: $product.text().substring(0, 100)
+            url: productUrl
           });
+          console.log(`取得 [${cards.length}] ${cardName.substring(0, 50)}`);
         }
       } catch (err) {
         console.log(`要素解析エラー: ${err.message}`);
